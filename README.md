@@ -22,6 +22,8 @@ Reload your shell (`source ~/.zshrc` or open a new terminal) and run `tti` to br
 - `tti` — open the interactive cheat sheet. `j/k` to scroll, `h/l` between pages, `f` to filter from the menu, `q` to quit.
 - `czsh <question>` — ask Claude (Haiku 4.5) for a one-shot zsh/macOS command. Pipes through `glow` for nice markdown rendering when stdout is a terminal. Includes `~/.zshrc` and the cheat-sheet entries as context, so answers can reference your own aliases.
 
+  **Privacy note:** `czsh` sends the contents of your `~/.zshrc` to Claude on every call as part of the system prompt. If your zshrc contains secrets (API keys, tokens), either remove them, move them to a separate file that isn't sourced, or edit `czsh` to skip the zshrc context.
+
 ## Dependencies
 
 - [`claude`](https://claude.com/claude-code) — for `czsh`.
