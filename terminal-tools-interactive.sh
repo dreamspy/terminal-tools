@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 
-# ~/.terminal-tools-interactive
+# ~/.terminal-tools/terminal-tools-interactive.sh
 # Interactive terminal tools helper.
 #
-# Suggested ~/.zshrc:
-#
-# terminal-tools() {
-#   command bash "$HOME/.terminal-tools-interactive"
-# }
-#
-# alias tt='terminal-tools'
+# Normally invoked via the `tti` alias defined in
+# ~/.terminal-tools/terminal-tools-init.zsh, which is sourced from ~/.zshrc.
 
 # Direct ANSI colors, known to work if:
 # printf '\033[1;32mGREEN TEXT\033[0m\n'
@@ -140,7 +135,7 @@ show_claude() {
   printf '    %sczsh rename all .jpeg files to .jpg%s\n\n' "$GREEN" "$RESET"
 
   printf '  %sNotes%s\n' "$DIM" "$RESET"
-  printf '    Defined in %s~/terminal-tools/terminal-tools.zsh%s, sourced from ~/.zshrc.\n' "$GREEN" "$RESET"
+  printf '    Defined in %s~/.terminal-tools/terminal-tools-init.zsh%s, sourced from ~/.zshrc.\n' "$GREEN" "$RESET"
   printf '    Uses Haiku 4.5 for speed, renders through %sglow%s.\n' "$GREEN" "$RESET"
   printf '    Context-aware: passes ~/.zshrc and this cheat sheet via --append-system-prompt,\n'
   printf '    so answers can reference your own aliases (e.g. it knows about %sgs%s, %scc%s, %stti%s).\n' "$GREEN" "$RESET" "$GREEN" "$RESET" "$GREEN" "$RESET"
@@ -451,7 +446,379 @@ show_mental_model() {
   heading "Config files"
   cmd ".zshrc" "- global terminal setup"
   cmd ".envrc" "- setup for this specific project folder"
-  cmd ".terminal-tools-interactive" "- this interactive helper"
+  cmd "~/.terminal-tools/" "- this interactive helper"
+}
+
+# ---------------------------------------------------------------------------
+# Saved user pages and Claude integration.
+# ---------------------------------------------------------------------------
+# The "Ask Claude" page (last in the list) lets the user ask Claude a question
+# and save the answer as a new markdown page or append it to an existing
+# saved page. Saved pages live as plain markdown under
+# TERMINAL_TOOLS_USER_PAGES_DIR and are picked up automatically.
+
+TERMINAL_TOOLS_USER_PAGES_DIR="${TERMINAL_TOOLS_USER_PAGES_DIR:-$HOME/.terminal-tools/user-pages}"
+
+# Set by save_as_new_user_page / append_to_user_page when a save succeeds, so
+# cycle_pages can land the user on the resulting page after the flow.
+ASK_JUMP_LABEL=""
+
+# Slug a string into a safe filename component.
+slugify() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9' '-' \
+    | tr -s '-' \
+    | sed -e 's/^-//' -e 's/-$//'
+}
+
+# Pick a unique filename for a new user page given a desired title.
+unique_user_page_path() {
+  local title="$1" slug base path i
+  slug=$(slugify "$title")
+  [[ -z "$slug" ]] && slug="page"
+  base="$TERMINAL_TOOLS_USER_PAGES_DIR/$slug"
+  path="$base.md"
+  i=2
+  while [[ -e "$path" ]]; do
+    path="$base-$i.md"
+    i=$(( i + 1 ))
+  done
+  printf '%s' "$path"
+}
+
+# Render a markdown file using the same color palette as the built-in pages.
+# Intentionally tiny: enough for headings, bullets, and code blocks. Captures
+# fenced code blocks (```), #/##/### headings, blockquotes, lists, and ---.
+render_markdown_file() {
+  local file="$1" line content in_code=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*\`\`\` ]]; then
+      in_code=$(( 1 - in_code ))
+      continue
+    fi
+    if (( in_code )); then
+      printf '  %s%s%s\n' "$GREEN" "$line" "$RESET"
+      continue
+    fi
+    case "$line" in
+      "# "*)
+        content="${line#\# }"
+        printf '%s%s%s%s\n\n' "$CYAN" "$BOLD" "$content" "$RESET"
+        ;;
+      "## "*)
+        content="${line#\#\# }"
+        printf '\n%s%s%s%s\n' "$YELLOW" "$BOLD" "$content" "$RESET"
+        ;;
+      "### "*)
+        content="${line#\#\#\# }"
+        printf '\n%s%s%s%s\n' "$MAGENTA" "$BOLD" "$content" "$RESET"
+        ;;
+      "> "*)
+        content="${line#> }"
+        printf '  %s│%s %s%s%s\n' "$DIM" "$RESET" "$DIM" "$content" "$RESET"
+        ;;
+      "- "*|"* "*)
+        content="${line:2}"
+        printf '  %s•%s %s\n' "$CYAN" "$RESET" "$content"
+        ;;
+      "---")
+        printf '\n  %s────────────────────────────────────────%s\n' "$DIM" "$RESET"
+        ;;
+      "")
+        printf '\n'
+        ;;
+      *)
+        printf '  %s\n' "$line"
+        ;;
+    esac
+  done < "$file"
+}
+
+# Display a saved user page. Used by render_page() when an entry's func is
+# the sentinel "__user_page__".
+show_user_page_file() {
+  local file="$1"
+  clear
+  if [[ -f "$file" ]]; then
+    render_markdown_file "$file"
+  else
+    title "PAGE NOT FOUND"
+    printf '  %s%s%s\n' "$RED" "$file" "$RESET"
+  fi
+}
+
+# Built-in last page: documents the Ask Claude flow.
+show_ask_claude() {
+  clear
+  title "ASK CLAUDE"
+
+  printf '  Ask Claude a zsh / terminal question and optionally save the answer\n'
+  printf '  as a new page or appended to an page you saved before.\n\n'
+
+  heading "How to use"
+  cmd "Press a" "- ask, see the answer, choose where to save"
+  cmd "(n)ew page" "- create a new page from the question and answer"
+  cmd "(e)xisting" "- append the answer to a previously saved page"
+  cmd "(s)kip" "- discard, do not save"
+
+  heading "Confirmation"
+  printf '  After choosing, you see a preview and confirm with %sy%s before anything\n' "$GREEN" "$RESET"
+  printf '  is written. Nothing is saved without an explicit yes.\n'
+
+  heading "Examples"
+  printf '    %sHow do I find files larger than 100 MB%s\n' "$GREEN" "$RESET"
+  printf '    %sUnzip only one file from archive.zip%s\n' "$GREEN" "$RESET"
+  printf '    %sWhat does set -euo pipefail do%s\n' "$GREEN" "$RESET"
+  printf '    %sRename all .jpeg files to .jpg%s\n\n' "$GREEN" "$RESET"
+
+  heading "Where pages live"
+  printf '  %s%s%s\n' "$GREEN" "$TERMINAL_TOOLS_USER_PAGES_DIR" "$RESET"
+  printf '  Plain markdown. Edit, rename, or delete with any editor.\n'
+
+  heading "Notes"
+  printf '  Uses Claude Haiku 4.5 for speed, same model as %sczsh%s.\n' "$GREEN" "$RESET"
+  printf '  Sends %s~/.zshrc%s and the cheat-sheet entries as context, like %sczsh%s.\n' "$GREEN" "$RESET" "$GREEN" "$RESET"
+  printf '  New pages appear in the menu and the page cycle right after a save.\n'
+  printf '  Press %sa%s from any page, not just this one.\n' "$GREEN" "$RESET"
+}
+
+# Discover saved user pages and append them to the page arrays. Called from
+# assemble_pages, which resets the arrays first so this is idempotent.
+load_user_pages() {
+  [[ -d "$TERMINAL_TOOLS_USER_PAGES_DIR" ]] || return 0
+  local file label
+  shopt -s nullglob
+  local files=("$TERMINAL_TOOLS_USER_PAGES_DIR"/*.md)
+  shopt -u nullglob
+  for file in "${files[@]}"; do
+    label=$(grep -m1 '^# ' "$file" 2>/dev/null | sed -e 's/^# *//' -e 's/[[:space:]]\{1,\}/ /g')
+    [[ -z "$label" ]] && label=$(basename "$file" .md | tr '-' ' ')
+    PAGE_LABELS+=("$label")
+    PAGE_FUNCS+=("__user_page__")
+    PAGE_DESCS+=("Saved by Ask Claude")
+    USER_PAGE_FILES+=("$file")
+  done
+}
+
+# Build the full page list: built-in pages, then user-saved pages, then the
+# Ask Claude page at the end. Called at startup and after every save.
+assemble_pages() {
+  PAGE_LABELS=("${BUILTIN_PAGE_LABELS[@]}")
+  PAGE_FUNCS=("${BUILTIN_PAGE_FUNCS[@]}")
+  PAGE_DESCS=("${BUILTIN_PAGE_DESCS[@]}")
+  USER_PAGE_FILES=()
+  local i
+  for (( i = 0; i < ${#PAGE_LABELS[@]}; i++ )); do
+    USER_PAGE_FILES+=("")
+  done
+  load_user_pages
+  PAGE_LABELS+=("Ask Claude")
+  PAGE_FUNCS+=("show_ask_claude")
+  PAGE_DESCS+=("Ask Claude a question, optionally save the answer")
+  USER_PAGE_FILES+=("")
+}
+
+# Dispatch a page render. Routes user-page entries to show_user_page_file
+# with the right path, otherwise calls the named built-in function.
+render_page() {
+  local idx="$1" func="${PAGE_FUNCS[$1]}"
+  if [[ "$func" == "__user_page__" ]]; then
+    show_user_page_file "${USER_PAGE_FILES[$idx]}"
+  else
+    "$func"
+  fi
+}
+
+# Build the same context czsh sends, so the answer can reference the user's
+# aliases and the cheat-sheet vocabulary.
+__claude_context() {
+  local self_path="${BASH_SOURCE[0]:-$0}"
+  if [[ -r ~/.zshrc ]]; then
+    printf 'My ~/.zshrc:\n'
+    cat ~/.zshrc
+    printf '\n\n'
+  fi
+  if [[ -r "$self_path" ]]; then
+    printf 'Cheat-sheet entries from terminal-tools-interactive (alias/tool, description):\n'
+    grep -E '^[[:space:]]*cmd ' "$self_path"
+    printf '\n'
+  fi
+}
+
+# Save the question + answer as a new user page after a Y/N confirmation.
+save_as_new_user_page() {
+  local question="$1" answer="$2"
+
+  printf '%sNew page title%s %s(Enter to use the question)%s:\n> ' \
+    "$YELLOW" "$RESET" "$DIM" "$RESET"
+  local title
+  IFS= read -r title
+  [[ -z "$title" ]] && title="$question"
+
+  mkdir -p "$TERMINAL_TOOLS_USER_PAGES_DIR" 2>/dev/null
+  local path
+  path=$(unique_user_page_path "$title")
+
+  printf '\n%sPreview%s\n' "$DIM" "$RESET"
+  printf '  %sTitle:%s %s\n' "$DIM" "$RESET" "$title"
+  printf '  %sFile:%s  %s\n' "$DIM" "$RESET" "$path"
+  printf '\n%sSave?%s %s(y/n)%s ' "$YELLOW" "$RESET" "$CYAN" "$RESET"
+  local confirm
+  IFS= read -rsn1 confirm
+  printf '\n'
+
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    printf '%sCancelled. Nothing was saved.%s\n' "$DIM" "$RESET"
+    return 1
+  fi
+
+  {
+    printf '# %s\n\n' "$title"
+    printf '> %s\n\n' "$question"
+    printf '%s\n' "$answer"
+  } > "$path"
+
+  printf '%sSaved to %s%s\n' "$GREEN" "$path" "$RESET"
+  ASK_JUMP_LABEL="$title"
+}
+
+# Append the question + answer to an existing user page after a Y/N confirm.
+append_to_user_page() {
+  local question="$1" answer="$2"
+
+  shopt -s nullglob
+  local files=("$TERMINAL_TOOLS_USER_PAGES_DIR"/*.md)
+  shopt -u nullglob
+
+  if (( ${#files[@]} == 0 )); then
+    printf '%sNo saved pages yet.%s Use %s(n)%s next time to create one.\n' \
+      "$DIM" "$RESET" "$CYAN" "$RESET"
+    return 1
+  fi
+
+  local i file label
+  local -a labels
+  for i in "${!files[@]}"; do
+    file="${files[$i]}"
+    label=$(grep -m1 '^# ' "$file" 2>/dev/null | sed 's/^# *//')
+    [[ -z "$label" ]] && label=$(basename "$file" .md | tr '-' ' ')
+    labels+=("$label")
+  done
+
+  printf '%sExisting saved pages%s\n' "$DIM" "$RESET"
+  for i in "${!labels[@]}"; do
+    printf '  %s%2d%s  %s\n' "$CYAN" "$(( i + 1 ))" "$RESET" "${labels[$i]}"
+  done
+
+  printf '\n%sPick a page%s %s(number, Enter to cancel)%s > ' \
+    "$YELLOW" "$RESET" "$DIM" "$RESET"
+  local pick
+  IFS= read -r pick
+  if [[ -z "$pick" ]]; then
+    printf '%sCancelled.%s\n' "$DIM" "$RESET"
+    return 1
+  fi
+  if ! [[ "$pick" =~ ^[0-9]+$ ]]; then
+    printf '%sNot a number, cancelled.%s\n' "$RED" "$RESET"
+    return 1
+  fi
+
+  local idx=$(( pick - 1 ))
+  if (( idx < 0 || idx >= ${#files[@]} )); then
+    printf '%sOut of range, cancelled.%s\n' "$RED" "$RESET"
+    return 1
+  fi
+
+  local target="${files[$idx]}"
+  local target_label="${labels[$idx]}"
+
+  printf '\n%sAppending to:%s %s\n' "$DIM" "$RESET" "$target_label"
+  printf '%sFile:%s         %s\n' "$DIM" "$RESET" "$target"
+  printf '\n%sAppend?%s %s(y/n)%s ' "$YELLOW" "$RESET" "$CYAN" "$RESET"
+  local confirm
+  IFS= read -rsn1 confirm
+  printf '\n'
+
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    printf '%sCancelled. Nothing was changed.%s\n' "$DIM" "$RESET"
+    return 1
+  fi
+
+  {
+    printf '\n---\n\n'
+    printf '## %s\n\n' "$question"
+    printf '%s\n' "$answer"
+  } >> "$target"
+
+  printf '%sAppended to %s%s\n' "$GREEN" "$target" "$RESET"
+  ASK_JUMP_LABEL="$target_label"
+}
+
+# Interactive flow: prompt for a question, call Claude, show the answer, and
+# offer to save as a new page or append to an existing one. Each save step
+# requires an explicit y/Y confirmation.
+ask_claude_flow() {
+  ASK_JUMP_LABEL=""
+
+  if ! command -v claude >/dev/null 2>&1; then
+    clear
+    title "ASK CLAUDE"
+    printf '  %sclaude%s command not found in PATH.\n' "$RED" "$RESET"
+    printf '  Install Claude Code from %shttps://claude.com/claude-code%s and try again.\n' "$GREEN" "$RESET"
+    printf '\n%sPress any key to continue...%s' "$DIM" "$RESET"
+    IFS= read -rsn1
+    return
+  fi
+
+  clear
+  printf '%s%sASK CLAUDE%s\n\n' "$CYAN" "$BOLD" "$RESET"
+  printf '%sType your question%s %s(Enter on empty line to cancel)%s\n> ' \
+    "$YELLOW" "$RESET" "$DIM" "$RESET"
+
+  local question
+  IFS= read -r question
+  [[ -z "$question" ]] && return
+
+  printf '\n%sAsking Claude (haiku) ...%s\n' "$DIM" "$RESET"
+
+  local context prompt answer
+  context=$(__claude_context)
+  prompt="You are helping me in zsh on macOS. Give concise, safe terminal commands. Output as concise markdown for a cheat-sheet page. Use a clear top-level # heading with a short title that names the topic. Then a one-sentence intro, then ## sub-headings with bullets and code blocks. Prefer the user's existing aliases when relevant. Question: $question"
+
+  answer=$(claude -p --model haiku --append-system-prompt "$context" "$prompt" 2>&1)
+
+  if [[ -z "$answer" ]]; then
+    printf '%sNo response from Claude.%s\n' "$RED" "$RESET"
+    printf '\n%sPress any key to continue...%s' "$DIM" "$RESET"
+    IFS= read -rsn1
+    return
+  fi
+
+  clear
+  printf '%s%sQuestion%s\n  %s\n\n' "$CYAN" "$BOLD" "$RESET" "$question"
+  printf '%s%sAnswer%s\n\n' "$CYAN" "$BOLD" "$RESET"
+  if command -v glow >/dev/null 2>&1; then
+    printf '%s' "$answer" | glow -
+  else
+    printf '%s\n' "$answer"
+  fi
+
+  printf '\n%s%sSave this answer?%s ' "$YELLOW" "$BOLD" "$RESET"
+  printf '%s(n)%s new page  %s(e)%s append to existing  %s(s)%s skip > ' \
+    "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+  local action
+  IFS= read -rsn1 action
+  printf '\n\n'
+
+  case "$action" in
+    n|N) save_as_new_user_page "$question" "$answer" ;;
+    e|E) append_to_user_page "$question" "$answer" ;;
+    *)   printf '%sSkipped, nothing saved.%s\n' "$DIM" "$RESET" ;;
+  esac
+
+  printf '\n%sPress any key to continue...%s' "$DIM" "$RESET"
+  IFS= read -rsn1
 }
 
 # Ordered list of pages for cycling. Three parallel arrays so each page has a
@@ -502,6 +869,15 @@ PAGE_DESCS=(
   "Cheat sheet of mental shortcuts"
 )
 
+# Snapshot the built-in arrays so assemble_pages can rebuild from a clean
+# state after each save. assemble_pages then re-loads user pages and appends
+# the "Ask Claude" entry at the end.
+BUILTIN_PAGE_LABELS=("${PAGE_LABELS[@]}")
+BUILTIN_PAGE_FUNCS=("${PAGE_FUNCS[@]}")
+BUILTIN_PAGE_DESCS=("${PAGE_DESCS[@]}")
+USER_PAGE_FILES=()
+assemble_pages
+
 # Find index of a label, or -1.
 page_index_of() {
   local label="$1" i
@@ -546,12 +922,12 @@ visual_wrap() {
 cycle_pages() {
   local idx="$1" total="${#PAGE_LABELS[@]}"
   local output rows cols last_cols view max_off offset key rest discard
-  local label line status i end
+  local label line status i end new_idx
   local -a raw_lines lines
 
   while true; do
     # Re-capture the page only when we move between pages.
-    output=$("${PAGE_FUNCS[$idx]}")
+    output=$(render_page "$idx")
     raw_lines=()
     while IFS= read -r line; do
       raw_lines+=("$line")
@@ -602,10 +978,10 @@ cycle_pages() {
       local KEY="${BOLD}${CYAN}" SEP="  ${DIM}·${RESET}  " prefix
       if (( max_off > 0 )); then
         prefix="${DIM}[$((idx+1))/$total $label] $((offset+1))-$end/${#lines[@]}${RESET}"
-        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}j/k${RESET} Scroll${SEP}${KEY}g/G${RESET} Top/Bot${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
+        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}j/k${RESET} Scroll${SEP}${KEY}g/G${RESET} Top/Bot${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
       else
         prefix="${DIM}[$((idx+1))/$total $label]${RESET}"
-        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
+        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
       fi
       # Truncate status to one visual row so it never wraps; append RESET in
       # case the wrap point fell inside an unclosed color sequence.
@@ -639,6 +1015,18 @@ cycle_pages() {
         b|B)  (( offset -= view )) ;;
         g)    offset=0 ;;
         G)    offset=$max_off ;;
+        a|A)
+          ask_claude_flow
+          # User pages may have been added, rebuild and refresh the count.
+          assemble_pages
+          total="${#PAGE_LABELS[@]}"
+          if [[ -n "$ASK_JUMP_LABEL" ]]; then
+            new_idx=$(page_index_of "$ASK_JUMP_LABEL")
+            (( new_idx >= 0 )) && idx=$new_idx
+          fi
+          (( idx >= total )) && idx=$(( total - 1 ))
+          break
+          ;;
         m|M)  return 0 ;;
         q|Q)  clear; exit 0 ;;
       esac
