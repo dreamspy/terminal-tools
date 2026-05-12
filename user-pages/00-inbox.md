@@ -80,3 +80,35 @@ fd -e jpeg -x echo mv {} {.}.jpg
 ```
 
 Remove `echo` once you confirm the output looks right.
+
+---
+
+## how to use z and zi
+
+# Smart Folder Jumping with Zoxide
+
+Jump to frequently-used folders by name without full paths, using zoxide's `z` and `zi` commands.
+
+## Basic Usage
+
+- `z projectname` - Jump to a folder named "projectname" (matched by frecency, your most frequent/recent visits)
+- `z` - Jump to your most-visited folder
+- `z .` - Jump to current folder (not typically useful)
+
+## Interactive Selection
+
+- `zi` - Open interactive picker when multiple folders match the same name
+- `zi projectname` - Pick from all folders containing "projectname" in the path
+
+## Examples
+
+```bash
+z myproject      # Jump if you have one folder matching myproject
+zi myproject     # Choose from multiple myproject folders
+z src            # Jump to your most-visited /src folder
+zi               # Choose from all your frecent folders
+```
+
+## How It Works
+
+Zoxide learns your navigation patterns and ranks folders by frecency (visits × recency). Matches are case-insensitive. As you navigate with `cd`, zoxide tracks the folder automatically.

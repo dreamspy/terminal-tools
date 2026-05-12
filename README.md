@@ -5,7 +5,7 @@ Personal terminal cheat sheet and a small Claude-powered zsh assistant.
 ## Contents
 
 - `terminal-tools-interactive.sh` — interactive cheat sheet (run with `tti`).
-- `terminal-tools-init.zsh` — defines the `tti` alias and the `czsh` function. Sourced from `~/.zshrc`.
+- `terminal-tools-init.zsh` — defines general aliases, the `tti` alias and the `czsh` function. Sourced from `~/.zshrc`.
 
 ## Setup
 
@@ -39,4 +39,4 @@ Saved pages live as plain markdown under `~/.terminal-tools/user-pages/` (overri
 
 - [`claude`](https://claude.com/claude-code) — for `czsh`.
 - [`glow`](https://github.com/charmbracelet/glow) — optional, for rendered markdown in `czsh` output. Falls back to plain text if unavailable.
-- `bash` — `terminal-tools-interactive.sh` runs under bash.
+- `bash` — `terminal-tools-interactive` runs under bash.
