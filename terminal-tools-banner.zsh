@@ -10,7 +10,5 @@
 terminal-help() {
   printf "tti - Show terminal tools help \n"
   printf "czsh - Ask Claude about how to do stuff in zsh \n"
-  printf "hello"
-
 }
 terminal-help
