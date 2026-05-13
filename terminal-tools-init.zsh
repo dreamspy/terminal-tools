@@ -21,8 +21,8 @@ alias cc='claude'
 alias ccd='claude --dangerously-skip-permissions'
 alias obsidian-gui='open -a Obsidian'
 alias tree='eza --tree --icons'
-# Zoxide
-eval "$(zoxide init zsh)"
+# Zoxide (skip cleanly if not installed)
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
 
 #### COMMAND: tti
 # Resolve the directory this file lives in, so the helpers work regardless
