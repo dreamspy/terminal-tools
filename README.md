@@ -2,20 +2,44 @@
 
 Personal terminal cheat sheet and a small Claude-powered zsh assistant.
 
-## Contents
+## Install
 
-- `terminal-tools-interactive.sh` — interactive cheat sheet (run with `tti`).
-- `terminal-tools-init.zsh` — defines general aliases, the `tti` alias and the `czsh` function. Sourced from `~/.zshrc`.
-
-## Setup
-
-Clone the repo into `~/.terminal-tools` (or anywhere; the helpers resolve their own path), then add this line to `~/.zshrc`:
+Run these three commands:
 
 ```zsh
-source "$HOME/.terminal-tools/terminal-tools-init.zsh"
+git clone https://github.com/dreamspy/terminal-tools.git ~/.terminal-tools
+
+# Prepend the banner source (with comment) to the top of ~/.zshrc
+{
+  echo "# terminal-tools welcome banner - must be BEFORE p10k instant prompt so"
+  echo "# its console output doesn't trigger p10k's console-output warning."
+  echo 'source "$HOME/.terminal-tools/terminal-tools-banner.zsh"'
+  echo
+  cat ~/.zshrc
+} > ~/.zshrc.new && mv ~/.zshrc.new ~/.zshrc
+
+# Append the main init source (with comment) to the bottom of ~/.zshrc
+{
+  echo
+  echo "# terminal-tools aliases, tti, czsh, zoxide (sourced after oh-my-zsh so"
+  echo "# our aliases win against oh-my-zsh defaults)."
+  echo 'source "$HOME/.terminal-tools/terminal-tools-init.zsh"'
+} >> ~/.zshrc
+
+source ~/.zshrc
 ```
 
-Reload your shell (`source ~/.zshrc` or open a new terminal) and run `tti` to browse the cheat sheet.
+Two lines are added to `~/.zshrc`:
+- **`terminal-tools-banner.zsh`** at the **top** (before the Powerlevel10k instant-prompt block) so the welcome banner doesn't trip p10k's console-output warning.
+- **`terminal-tools-init.zsh`** at the **bottom** (after oh-my-zsh) so our aliases win against oh-my-zsh defaults.
+
+That's it. Run `tti` to browse the cheat sheet.
+
+## Contents
+
+- `tti` — interactive cheat sheet (bash script, run via the `tti` shell function).
+- `terminal-tools-banner.zsh` — login welcome banner. Sourced from the **top** of `~/.zshrc` (before p10k instant prompt).
+- `terminal-tools-init.zsh` — defines aliases, the `tti` and `czsh` functions, and zoxide. Sourced from the **bottom** of `~/.zshrc` (after oh-my-zsh).
 
 ## Commands
 
@@ -39,4 +63,4 @@ Saved pages live as plain markdown under `~/.terminal-tools/user-pages/` (overri
 
 - [`claude`](https://claude.com/claude-code) — for `czsh`.
 - [`glow`](https://github.com/charmbracelet/glow) — optional, for rendered markdown in `czsh` output. Falls back to plain text if unavailable.
-- `bash` — `terminal-tools-interactive` runs under bash.
+- `bash` — the `tti` script runs under bash.

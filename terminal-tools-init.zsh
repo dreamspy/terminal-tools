@@ -1,5 +1,7 @@
-# Helpers for the terminal-tools cheat sheet and the Claude zsh assistant.
-# Source this from ~/.zshrc:  source ~/.terminal-tools/terminal-tools-init.zsh
+# Aliases, the `tti` and `czsh` functions, and zoxide init.
+# Source this from the BOTTOM of ~/.zshrc (after oh-my-zsh) so our aliases
+# override oh-my-zsh defaults. The login welcome banner is in a separate file,
+# terminal-tools-banner.zsh, sourced from the TOP of ~/.zshrc.
 
 #### ALIASES
 alias ll='ls -lah'
@@ -28,10 +30,9 @@ eval "$(zoxide init zsh)"
 TERMINAL_TOOLS_DIR="${${(%):-%N}:A:h}"
 
 # Show the interactive cheat sheet.
-terminal-tools-interactive() {
-  bash "$TERMINAL_TOOLS_DIR/terminal-tools-interactive.sh"
+tti() {
+  bash "$TERMINAL_TOOLS_DIR/tti"
 }
-alias tti='terminal-tools-interactive'
 
 ### COMMAND: czsh
 # Ask Claude a quick zsh / terminal question (Haiku for speed, glow for rendering).
@@ -43,9 +44,9 @@ czsh() {
   if [[ -r ~/.zshrc ]]; then
     context+=$'My ~/.zshrc:\n'"$(<~/.zshrc)"$'\n\n'
   fi
-  local cheatsheet="$TERMINAL_TOOLS_DIR/terminal-tools-interactive.sh"
+  local cheatsheet="$TERMINAL_TOOLS_DIR/tti"
   if [[ -r "$cheatsheet" ]]; then
-    context+=$'Cheat-sheet entries from terminal-tools-interactive (alias/tool, description):\n'
+    context+=$'Cheat-sheet entries from tti (alias/tool, description):\n'
     context+="$(grep -E '^[[:space:]]*cmd ' "$cheatsheet")"$'\n'
   fi
   if [[ -t 1 ]] && command -v glow >/dev/null 2>&1; then

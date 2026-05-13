@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-# ~/.terminal-tools/terminal-tools-interactive.sh
-# Interactive terminal tools helper.
-#
-# Normally invoked via the `tti` alias defined in
-# ~/.terminal-tools/terminal-tools-init.zsh, which is sourced from ~/.zshrc.
+# ~/.terminal-tools/tti
+# Interactive terminal tools cheat sheet. Invoked via the `tti` function
+# defined in ~/.terminal-tools/terminal-tools-init.zsh (sourced from ~/.zshrc).
 
 # Direct ANSI colors, known to work if:
 # printf '\033[1;32mGREEN TEXT\033[0m\n'
@@ -640,7 +638,7 @@ __claude_context() {
     printf '\n\n'
   fi
   if [[ -r "$self_path" ]]; then
-    printf 'Cheat-sheet entries from terminal-tools-interactive (alias/tool, description):\n'
+    printf 'Cheat-sheet entries from tti (alias/tool, description):\n'
     grep -E '^[[:space:]]*cmd ' "$self_path"
     printf '\n'
   fi
