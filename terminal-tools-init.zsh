@@ -55,3 +55,49 @@ czsh() {
     claude -p --model haiku --append-system-prompt "$context" "$prompt"
   fi
 }
+
+#### COMMAND: goto
+# goto <name> : cd to a directory under ~ whose name matches <name>, ordered
+# most-recently-modified first, with the modified date shown in the picker.
+# Must be a function, not an alias: aliases can't take positional arguments.
+# One match -> jump straight there. Several matches -> pick one in an fzf list
+# (most recent on top, date column on the left). No match -> a message. Excludes
+# the huge versioning/library trees per the home-folder map (so fd never hangs).
+#
+# Each match becomes "<mtime-epoch> <tab> <date> <tab> <path>" via stat; sort -rn
+# orders by the epoch, cut drops it, leaving "<date> <tab> <path>" for the list.
+# fzf shows that whole line but matches only the path (--nth=2). On select the
+# date column is stripped (${sel##*<tab>}) to recover the path. mtime tracks real
+# content changes and, unlike atime (%a), isn't bumped by fd scanning the tree.
+goto() {
+  local -a fd_excludes=(
+    -E Library
+    -E 'Vaults-rsync-versioning'
+    -E 'Vaults-syncthing-versioning'
+    -E '*.photoslibrary'
+    -E 'Lightroom'
+  )
+  local timefmt='%Y-%m-%d %H:%M'
+  local fmt=$'%m\t%Sm\t%N'   # epoch (sort key) <tab> human date <tab> path
+  local list sel
+
+  list=$(fd -t d "$1" ~ "${fd_excludes[@]}" \
+    --exec-batch stat -t "$timefmt" -f "$fmt" | sort -rn | cut -f2-)
+
+  if [[ -z $list ]]; then
+    echo "goto: no match for '$1'" >&2
+    return 1
+  fi
+
+  if command -v fzf >/dev/null 2>&1; then
+    # Show "date <tab> path"; --nth=2 searches only the path, not the date.
+    # --select-1 auto-picks a lone match without showing the UI.
+    sel=$(print -r -- "$list" | fzf --select-1 --reverse --height=40% \
+            --delimiter='\t' --nth=2 \
+            --prompt="goto > " --header="cd to which folder? (recent first)")
+  else
+    sel=${list%%$'\n'*}        # no fzf: most recently modified match
+  fi
+
+  [[ -n $sel ]] && cd "${sel##*$'\t'}"   # strip date column; empty = cancelled
+}

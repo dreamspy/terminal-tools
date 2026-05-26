@@ -73,11 +73,13 @@ show_navigation() {
   cmd "c" "- clear terminal"
   cmd "h" "- show command history"
   cmd "z" "- smart folder jumping with zoxide"
+  cmd "goto <name>" "- cd to folder under ~ matching <name>; list if several, recent first (fd+fzf)"
   cmd "tree" "- tree view of current directory"
 
   heading "Examples"
   cmd "z projectname" "- jump to a folder you use often"
   cmd "z patbot" "- jump to a remembered patbot folder"
+  cmd "goto backtax26" "- jump to backtax26 folder, or pick if several match"
   cmd "tree" "- show folder tree"
   cmd "tree --level=2" "- show shallow folder tree if using eza alias"
 }
