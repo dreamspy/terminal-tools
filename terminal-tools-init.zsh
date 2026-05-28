@@ -79,9 +79,17 @@ goto() {
   )
   local timefmt='%Y-%m-%d %H:%M'
   local fmt=$'%m\t%Sm\t%N'   # epoch (sort key) <tab> human date <tab> path
-  local list sel
+  local list sel pat="$1"
 
-  list=$(fd -t d "$1" ~ "${fd_excludes[@]}" \
+  # macOS filenames are a mix of NFC and NFD (Google Drive, HFS+ legacy, etc.).
+  # Folder names that look identical can differ in bytes (e.g. "Hugvíkkandi"
+  # stored as NFD won't match a query typed as NFC). Expand the query to a
+  # regex that accepts either normalisation form.
+  local nfd
+  nfd=$(printf '%s' "$1" | iconv -f UTF-8 -t UTF-8-MAC 2>/dev/null)
+  [[ -n $nfd && $nfd != "$1" ]] && pat="(?:$1|$nfd)"
+
+  list=$(fd -t d "$pat" ~ "${fd_excludes[@]}" \
     --exec-batch stat -t "$timefmt" -f "$fmt" | sort -rn | cut -f2-)
 
   if [[ -z $list ]]; then
