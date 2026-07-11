@@ -945,11 +945,59 @@ visual_wrap() {
   fi
 }
 
+# Rebuild the ANSI-stripped mirror of `lines` that in-page search (/) matches
+# against, so highlighting/matching never has to deal with color codes.
+build_lines_plain() {
+  lines_plain=()
+  local joined stripped line
+  joined=$(printf '%s\n' "${lines[@]}")
+  stripped=$(printf '%s' "$joined" | sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g')
+  while IFS= read -r line; do
+    lines_plain+=("$line")
+  done <<< "$stripped"
+}
+
+# Recompute search_matches (indices into `lines`) for the current
+# search_query against lines_plain. Doesn't move the viewport; call
+# jump_to_nearest_match for that.
+refresh_search_matches() {
+  search_matches=()
+  [[ -z "$search_query" ]] && return
+  local i
+  for i in "${!lines_plain[@]}"; do
+    if printf '%s' "${lines_plain[$i]}" | grep -qiF -- "$search_query"; then
+      search_matches+=("$i")
+    fi
+  done
+  (( search_match_pos >= ${#search_matches[@]} )) && search_match_pos=0
+}
+
+# Move the viewport to the nearest match at or after the current offset,
+# wrapping to the first match — same as vim's forward /-search.
+jump_to_nearest_match() {
+  (( ${#search_matches[@]} == 0 )) && return
+  local i m target=""
+  for i in "${!search_matches[@]}"; do
+    m="${search_matches[$i]}"
+    if (( m >= offset )); then
+      target=$m
+      search_match_pos=$i
+      break
+    fi
+  done
+  if [[ -z "$target" ]]; then
+    target="${search_matches[0]}"
+    search_match_pos=0
+  fi
+  offset=$target
+}
+
 cycle_pages() {
   local idx="$1" total="${#PAGE_LABELS[@]}"
   local output rows cols last_cols view max_off offset key rest discard
   local label line status i end new_idx
-  local -a raw_lines lines
+  local search_query="" search_match_pos=0
+  local -a raw_lines lines lines_plain search_matches
 
   while true; do
     # Re-capture the page only when we move between pages.
@@ -960,6 +1008,9 @@ cycle_pages() {
     done <<< "$output"
     last_cols=-1
     offset=0
+    search_query=""
+    search_matches=()
+    search_match_pos=0
 
     while true; do
       # Query the controlling terminal directly. `tput lines/cols` inside $()
@@ -980,6 +1031,8 @@ cycle_pages() {
           lines+=("${WRAPPED[@]}")
         done
         last_cols=$cols
+        build_lines_plain
+        [[ -n "$search_query" ]] && refresh_search_matches
       fi
 
       view=$(( rows - 2 ))
@@ -1001,13 +1054,20 @@ cycle_pages() {
       tput cup $(( rows - 1 )) 0 2>/dev/null
 
       label=${PAGE_LABELS[$idx]}
-      local KEY="${BOLD}${CYAN}" SEP="  ${DIM}·${RESET}  " prefix
+      local KEY="${BOLD}${CYAN}" SEP="  ${DIM}·${RESET}  " prefix search_hint
+      if [[ -z "$search_query" ]]; then
+        search_hint="${SEP}${KEY}/${RESET} Search"
+      elif (( ${#search_matches[@]} > 0 )); then
+        search_hint="${SEP}${MAGENTA}/${search_query}${RESET} ${DIM}($((search_match_pos+1))/${#search_matches[@]})${RESET}${SEP}${KEY}n/p${RESET} Next/prev match"
+      else
+        search_hint="${SEP}${RED}/${search_query}: not found${RESET}"
+      fi
       if (( max_off > 0 )); then
         prefix="${DIM}[$((idx+1))/$total $label] $((offset+1))-$end/${#lines[@]}${RESET}"
-        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}j/k${RESET} Scroll${SEP}${KEY}g/G${RESET} Top/Bot${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
+        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}j/k${RESET} Scroll${SEP}${KEY}g/G${RESET} Top/Bot${search_hint}${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
       else
         prefix="${DIM}[$((idx+1))/$total $label]${RESET}"
-        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
+        status="${prefix}${SEP}${KEY}h/l${RESET} Pages${search_hint}${SEP}${KEY}a${RESET} Ask${SEP}${KEY}m${RESET} Menu${SEP}${KEY}q${RESET} Quit"
       fi
       # Truncate status to one visual row so it never wraps; append RESET in
       # case the wrap point fell inside an unclosed color sequence.
@@ -1033,14 +1093,42 @@ cycle_pages() {
             '[6') IFS= read -rsn1 -t 0.05 discard || true; (( offset += view )) ;;
           esac
           ;;
-        n|N|l|L) idx=$(( (idx+1) % total )); break ;;
-        p|P|h|H) idx=$(( (idx-1+total) % total )); break ;;
+        n)
+          if (( ${#search_matches[@]} > 0 )); then
+            search_match_pos=$(( (search_match_pos + 1) % ${#search_matches[@]} ))
+            offset="${search_matches[$search_match_pos]}"
+          else
+            idx=$(( (idx+1) % total )); break
+          fi
+          ;;
+        p)
+          if (( ${#search_matches[@]} > 0 )); then
+            search_match_pos=$(( (search_match_pos - 1 + ${#search_matches[@]}) % ${#search_matches[@]} ))
+            offset="${search_matches[$search_match_pos]}"
+          else
+            idx=$(( (idx-1+total) % total )); break
+          fi
+          ;;
+        N|l|L) idx=$(( (idx+1) % total )); break ;;
+        P|h|H) idx=$(( (idx-1+total) % total )); break ;;
         j|J)  (( offset++ )) ;;
         k|K)  (( offset-- )) ;;
         ' ')  (( offset += view )) ;;
         b|B)  (( offset -= view )) ;;
         g)    offset=0 ;;
         G)    offset=$max_off ;;
+        /)
+          tput cup $(( rows - 1 )) 0 2>/dev/null
+          tput el 2>/dev/null
+          printf '%s/%s' "$YELLOW" "$RESET"
+          local typed
+          IFS= read -r typed
+          if [[ -n "$typed" ]]; then
+            search_query="$typed"
+            refresh_search_matches
+            jump_to_nearest_match
+          fi
+          ;;
         a|A)
           ask_claude_flow
           # User pages may have been added, rebuild and refresh the count.
