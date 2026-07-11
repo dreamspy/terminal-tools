@@ -957,19 +957,68 @@ build_lines_plain() {
   done <<< "$stripped"
 }
 
-# Recompute search_matches (indices into `lines`) for the current
-# search_query against lines_plain. Doesn't move the viewport; call
-# jump_to_nearest_match for that.
+# Recompute search_matches (indices into `lines`) and match_lookup (the same
+# indices, as set keys, for O(1) "is this line a match" checks while
+# redrawing) for the current search_query against lines_plain. Doesn't move
+# the viewport; call jump_to_nearest_match for that.
 refresh_search_matches() {
   search_matches=()
+  match_lookup=()
   [[ -z "$search_query" ]] && return
   local i
   for i in "${!lines_plain[@]}"; do
     if printf '%s' "${lines_plain[$i]}" | grep -qiF -- "$search_query"; then
       search_matches+=("$i")
+      match_lookup[$i]=1
     fi
   done
   (( search_match_pos >= ${#search_matches[@]} )) && search_match_pos=0
+}
+
+# Print a line with the search query highlighted (reverse video) wherever it
+# occurs, preserving the line's own ANSI color codes. Finds the match with a
+# literal (non-glob) scan of the ANSI-stripped `plain` text, then walks the
+# ANSI-colored `orig` text char by char, skipping escape sequences whole
+# (same technique as visual_wrap), to find where those visible characters
+# fall in `orig` and wrap them in \033[7m / \033[27m.
+highlight_line() {
+  local orig="$1" plain="$2" query="$3"
+  local plain_lower="${plain,,}" query_lower="${query,,}"
+  local qlen=${#query_lower} plen=${#plain_lower}
+  local pos=-1 p
+  for (( p = 0; p + qlen <= plen; p++ )); do
+    if [[ "${plain_lower:p:qlen}" == "$query_lower" ]]; then
+      pos=$p
+      break
+    fi
+  done
+  if (( pos < 0 )); then
+    printf '%s' "$orig"
+    return
+  fi
+  local match_start=$pos match_end=$(( pos + qlen ))
+
+  local rest="$orig" vis=0 opened=0
+  local ansi_re=$'^\x1b\\[[0-9;]*[a-zA-Z]'
+  while [[ -n "$rest" ]]; do
+    if [[ "$rest" =~ $ansi_re ]]; then
+      printf '%s' "${BASH_REMATCH[0]}"
+      rest="${rest:${#BASH_REMATCH[0]}}"
+    else
+      if (( vis == match_start )) && (( opened == 0 )); then
+        printf '\033[7m'
+        opened=1
+      fi
+      printf '%s' "${rest:0:1}"
+      rest="${rest:1}"
+      vis=$(( vis + 1 ))
+      if (( opened == 1 )) && (( vis == match_end )); then
+        printf '\033[27m'
+        opened=2
+      fi
+    fi
+  done
+  (( opened == 1 )) && printf '\033[27m'
 }
 
 # Move the viewport to the nearest match at or after the current offset,
@@ -998,6 +1047,7 @@ cycle_pages() {
   local label line status i end new_idx
   local search_query="" search_match_pos=0
   local -a raw_lines lines lines_plain search_matches
+  local -A match_lookup
 
   while true; do
     # Re-capture the page only when we move between pages.
@@ -1011,6 +1061,7 @@ cycle_pages() {
     search_query=""
     search_matches=()
     search_match_pos=0
+    match_lookup=()
 
     while true; do
       # Query the controlling terminal directly. `tput lines/cols` inside $()
@@ -1046,7 +1097,12 @@ cycle_pages() {
       end=$(( offset + view ))
       (( end > ${#lines[@]} )) && end=${#lines[@]}
       for (( i=offset; i<end; i++ )); do
-        printf '%s\n' "${lines[$i]}"
+        if [[ -n "$search_query" && -n "${match_lookup[$i]:-}" ]]; then
+          highlight_line "${lines[$i]}" "${lines_plain[$i]}" "$search_query"
+          printf '\n'
+        else
+          printf '%s\n' "${lines[$i]}"
+        fi
       done
 
       # Pin the status line to the bottom row of the terminal regardless of
@@ -1217,16 +1273,11 @@ show_menu() {
       "$label_w" "Search page contents" "$DIM" "$RESET")$'\n'
     labels+="Quit"
 
-    local nav_header="${KEY}j/k${RESET} Navigate${SEP}${KEY}l${RESET} Open${SEP}${KEY}f${RESET} Filter${SEP}${KEY}s${RESET} Search${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
-    local filter_header="${DIM}type to filter${RESET}${SEP}${KEY}enter${RESET} Open${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
+    local nav_header="${KEY}j/k${RESET} Navigate${SEP}${KEY}l${RESET} Open${SEP}${KEY}s${RESET} Search${SEP}${KEY}esc/ctrl-c${RESET} Quit"
 
-    # Modal navigation:
-    #   Default (nav) mode: j/k/l navigate; any other char gets wiped instantly
-    #     via change:clear-query so nothing accumulates in the prompt.
-    #   Press f to enter filter mode: unbind the auto-wipe (and f itself, so
-    #     'f' can appear in queries like 'fzf' / 'fd'). Prompt and header
-    #     update to make the mode obvious.
-    #   Press esc to clear, rebind, and restore the nav prompt/header.
+    # Nav mode: j/k/l/h move/open. s jumps straight to the search entry and
+    # accepts it. Any other typed char is wiped instantly via
+    # change:clear-query so nothing accumulates in the prompt.
     choice=$(printf "%s" "$labels" | fzf \
         --ansi \
         --height=70% \
@@ -1235,9 +1286,7 @@ show_menu() {
         --header "$nav_header" \
         --bind 'change:clear-query' \
         --bind 'j:down,k:up,l:accept,h:ignore' \
-        --bind "f:unbind(change,f,s)+change-prompt(filter > )+change-header($filter_header)" \
-        --bind 's:pos(-2)+accept' \
-        --bind "esc:clear-query+rebind(change,f,s)+change-prompt(terminal-tools > )+change-header($nav_header)")
+        --bind 's:pos(-2)+accept')
 
     # fzf returns the entire rendered row (label + padding + description).
     # Strip everything from the first run of two-or-more spaces onward to
