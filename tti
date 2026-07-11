@@ -617,6 +617,7 @@ assemble_pages() {
   PAGE_FUNCS+=("show_ask_claude")
   PAGE_DESCS+=("Ask Claude a question, optionally save the answer")
   USER_PAGE_FILES+=("")
+  build_page_content_index
 }
 
 # Dispatch a page render. Routes user-page entries to show_user_page_file
@@ -628,6 +629,31 @@ render_page() {
   else
     "$func"
   fi
+}
+
+# Render a page and strip it down to plain, single-line text (no ANSI codes,
+# no newlines) for the content search feature.
+render_page_plaintext() {
+  local idx="$1" output
+  output=$(render_page "$idx" 2>/dev/null)
+  output=$(printf '%s' "$output" | sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g')
+  output="${output//$'\n'/ }"
+  output="${output//$'\t'/ }"
+  printf '%s' "$output"
+}
+
+# Build PAGE_CONTENT: one lowercased "label desc body" string per page,
+# parallel to PAGE_LABELS. Powers the content search feature so it can find
+# pages that mention a word anywhere in the body, not just in the label or
+# description. Called from assemble_pages so it stays in sync with the page
+# list (rebuilt after every Ask Claude save too).
+build_page_content_index() {
+  PAGE_CONTENT=()
+  local i content
+  for (( i = 0; i < ${#PAGE_LABELS[@]}; i++ )); do
+    content="${PAGE_LABELS[$i]} ${PAGE_DESCS[$i]} $(render_page_plaintext "$i")"
+    PAGE_CONTENT+=("${content,,}")
+  done
 }
 
 # Build the same context czsh sends, so the answer can reference the user's
@@ -1034,6 +1060,48 @@ cycle_pages() {
   done
 }
 
+# Content search: live-filter pages by what's actually written on them, not
+# just their label/description. Shows a picker seeded from PAGE_CONTENT and
+# re-filters on every keystroke via fzf's --disabled + reload combo, since
+# fzf can't match against fields that aren't displayed. Prints the picked
+# "label  desc" row (fzf's normal row format) on stdout, or nothing if the
+# user backs out.
+run_content_search() {
+  local search_index reload_cmd header result i label_w
+  label_w=0
+  for i in "${!PAGE_LABELS[@]}"; do
+    (( ${#PAGE_LABELS[$i]} > label_w )) && label_w=${#PAGE_LABELS[$i]}
+  done
+
+  search_index=$(mktemp "${TMPDIR:-/tmp}/tti-search.XXXXXX") || return 1
+  for i in "${!PAGE_LABELS[@]}"; do
+    printf '%s\t%s\t%s\n' \
+      "${PAGE_LABELS[$i]//$'\t'/ }" "${PAGE_DESCS[$i]//$'\t'/ }" "${PAGE_CONTENT[$i]}"
+  done > "$search_index"
+
+  # PAGE_CONTENT is already lowercased, so only the typed query needs it.
+  # Uses the reload: (colon) form, not reload(...), since the awk program's
+  # own parentheses would otherwise confuse fzf's paren-matching parser.
+  reload_cmd="awk -F'\t' -v q={q} '{ if (index(\$3, tolower(q))) printf \"%-${label_w}s  %s\n\", \$1, \$2 }' '$search_index'"
+
+  local KEY="${BOLD}${CYAN}" SEP="  ${DIM}·${RESET}  "
+  header="${DIM}type to search every page's contents${RESET}${SEP}${KEY}enter${RESET} Open${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
+
+  result=$(
+    awk -F'\t' '{ printf "%-'"$label_w"'s  %s\n", $1, $2 }' "$search_index" \
+      | fzf --ansi \
+            --height=70% \
+            --border \
+            --disabled \
+            --prompt="search > " \
+            --header="$header" \
+            --bind "change:reload:$reload_cmd"
+  )
+
+  rm -f "$search_index"
+  printf '%s' "$result"
+}
+
 show_menu() {
   local choice labels start_idx i header label_w
   local KEY="${BOLD}${CYAN}" SEP="  ${DIM}·${RESET}  "
@@ -1057,9 +1125,11 @@ show_menu() {
       labels+=$(printf '%-*s  %s%s%s' "$label_w" "${PAGE_LABELS[$i]}" \
         "$DIM" "${PAGE_DESCS[$i]}" "$RESET")$'\n'
     done
+    labels+=$(printf '%-*s  %sSearch every page for a word or phrase%s' \
+      "$label_w" "Search page contents" "$DIM" "$RESET")$'\n'
     labels+="Quit"
 
-    local nav_header="${KEY}j/k${RESET} Navigate${SEP}${KEY}l${RESET} Open${SEP}${KEY}f${RESET} Filter${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
+    local nav_header="${KEY}j/k${RESET} Navigate${SEP}${KEY}l${RESET} Open${SEP}${KEY}f${RESET} Filter${SEP}${KEY}s${RESET} Search${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
     local filter_header="${DIM}type to filter${RESET}${SEP}${KEY}enter${RESET} Open${SEP}${KEY}esc${RESET} Back${SEP}${KEY}ctrl-c${RESET} Quit"
 
     # Modal navigation:
@@ -1077,8 +1147,9 @@ show_menu() {
         --header "$nav_header" \
         --bind 'change:clear-query' \
         --bind 'j:down,k:up,l:accept,h:ignore' \
-        --bind "f:unbind(change,f)+change-prompt(filter > )+change-header($filter_header)" \
-        --bind "esc:clear-query+rebind(change,f)+change-prompt(terminal-tools > )+change-header($nav_header)")
+        --bind "f:unbind(change,f,s)+change-prompt(filter > )+change-header($filter_header)" \
+        --bind 's:pos(-2)+accept' \
+        --bind "esc:clear-query+rebind(change,f,s)+change-prompt(terminal-tools > )+change-header($nav_header)")
 
     # fzf returns the entire rendered row (label + padding + description).
     # Strip everything from the first run of two-or-more spaces onward to
@@ -1088,6 +1159,18 @@ show_menu() {
 
     case "$choice" in
       ""|"Quit") clear; exit 0 ;;
+      "Search page contents")
+        local search_choice
+        search_choice=$(run_content_search)
+        search_choice="${search_choice%%  *}"
+        search_choice="${search_choice%"${search_choice##*[![:space:]]}"}"
+        if [[ -n "$search_choice" ]]; then
+          start_idx=$(page_index_of "$search_choice")
+          if [[ "$start_idx" -ge 0 ]]; then
+            cycle_pages "$start_idx"
+          fi
+        fi
+        ;;
       *)
         start_idx=$(page_index_of "$choice")
         if [[ "$start_idx" -ge 0 ]]; then

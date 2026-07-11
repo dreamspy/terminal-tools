@@ -43,7 +43,7 @@ That's it. Run `tti` to browse the cheat sheet.
 
 ## Commands
 
-- `tti` — open the interactive cheat sheet. `j/k` to scroll, `h/l` between pages, `a` to ask Claude, `f` to filter from the menu, `q` to quit.
+- `tti` — open the interactive cheat sheet. `j/k` to scroll, `h/l` between pages, `a` to ask Claude, `f` to filter the menu by label, `s` to search every page's contents (finds pages that mention a word even if it's not in the title), `q` to quit.
 - `czsh <question>` — ask Claude (Haiku 4.5) for a one-shot zsh/macOS command. Pipes through `glow` for nice markdown rendering when stdout is a terminal. Includes `~/.zshrc` and the cheat-sheet entries as context, so answers can reference your own aliases.
 
   **Privacy note:** `czsh` and the in-`tti` Ask Claude flow both send the contents of your `~/.zshrc` to Claude on every call as part of the system prompt. If your zshrc contains secrets (API keys, tokens), either remove them, move them to a separate file that isn't sourced, or edit `czsh` and `ask_claude_flow` to skip the zshrc context.
