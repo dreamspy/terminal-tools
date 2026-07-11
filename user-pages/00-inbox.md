@@ -112,3 +112,40 @@ zi               # Choose from all your frecent folders
 ## How It Works
 
 Zoxide learns your navigation patterns and ranks folders by frecency (visits × recency). Matches are case-insensitive. As you navigate with `cd`, zoxide tracks the folder automatically.
+
+---
+
+## running "sudo -iu <username>" on ubuntu does what
+
+# Switch to another user with login shell
+
+Switches to another user's login environment with sudo privileges, loading their shell configuration.
+
+## What it does
+
+- `sudo -iu <username>` switches to `<username>` as a full login shell
+  - `-i` loads the user's login scripts (`~/.profile`, `~/.bash_profile`, etc.)
+  - `-u <username>` specifies which user to switch to
+  - You remain unprivileged (not root) unless `<username>` is `root`
+
+## Examples
+
+```bash
+# Switch to 'appuser' login shell, loading their environment
+sudo -iu appuser
+
+# Switch to root with full login environment
+sudo -iu root
+```
+
+## Common use cases
+
+- Starting a service as a specific application user (`appuser`, `www-data`, etc.)
+- Testing commands in another user's environment
+- Debugging permission/configuration issues for a specific user
+- Running cron jobs manually to replicate their context
+
+## Related
+
+- `sudo -u <username> <command>` – run a single command as user, no login shell
+- `su - <username>` – switch user without sudo (requires their password)
