@@ -39,12 +39,13 @@ That's it. Run `tti` to browse the cheat sheet.
 
 - `tti` — interactive cheat sheet (bash script, run via the `tti` shell function).
 - `terminal-tools-banner.zsh` — login welcome banner. Sourced from the **top** of `~/.zshrc` (before p10k instant prompt).
-- `terminal-tools-init.zsh` — defines aliases, the `tti` and `czsh` functions, and zoxide. Sourced from the **bottom** of `~/.zshrc` (after oh-my-zsh).
+- `terminal-tools-init.zsh` — defines aliases, the `tti`, `czsh`, and `goto` functions, and zoxide. Sourced from the **bottom** of `~/.zshrc` (after oh-my-zsh).
 
 ## Commands
 
 - `tti` — open the interactive cheat sheet. `j/k` to scroll, `h/l` between pages, `a` to ask Claude, `s` to search every page's contents (finds pages that mention a word even if it's not in the title), `q` to quit. Inside a page, `/` searches that page like vim: type a word, Enter jumps to the nearest match (highlighted), `n`/`p` step to the next/previous match.
 - `czsh <question>` — ask Claude (Haiku 4.5) for a one-shot zsh/macOS command. Pipes through `glow` for nice markdown rendering when stdout is a terminal. Includes `~/.zshrc` and the cheat-sheet entries as context, so answers can reference your own aliases.
+- `goto <name>` — `cd` to a folder under `~` whose name matches `<name>`, most-recently-modified first. A single match jumps straight there; several matches open an `fzf` picker (recent on top, with the modified date shown); no match prints a message. Skips the huge library/versioning trees so it stays fast.
 
   **Privacy note:** `czsh` and the in-`tti` Ask Claude flow both send the contents of your `~/.zshrc` to Claude on every call as part of the system prompt. If your zshrc contains secrets (API keys, tokens), either remove them, move them to a separate file that isn't sourced, or edit `czsh` and `ask_claude_flow` to skip the zshrc context.
 
