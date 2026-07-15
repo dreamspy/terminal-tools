@@ -9,7 +9,7 @@
 
 terminal-help() {
   printf "tti - Show terminal tools help \n"
-  printf "czsh - Ask Claude about how to do stuff in zsh \n"
+  printf "czsh <question> - Ask Claude about how to do stuff in zsh \n"
   printf "goto <name> - Jump to a folder under ~ (recent first) \n"
 }
 terminal-help
